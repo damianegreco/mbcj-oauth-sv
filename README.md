@@ -1,5 +1,5 @@
 
-# OAuth MBCJ frontend
+# OAuth MBCJ backend
 
 Librería para Node.js para utilizar el OAuth del Ministerio de Bienestar Ciduadano y Justicia.
 
