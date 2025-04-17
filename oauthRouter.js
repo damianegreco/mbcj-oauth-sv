@@ -13,7 +13,7 @@ const {OAUTH_URL, OAUTH_ID, OAUTH_SECRET, OAUTH_VALIDADO, OAUTH_REEMPLAZAR_NOMBR
   - activo
 */
 
-function oauth(Usuario){
+function oauthRouter(Usuario){
   const router = express.Router();
 
   const getToken = (codigo) => {
@@ -65,6 +65,18 @@ function oauth(Usuario){
     })
   }
 
+  /**
+   * @api {post} /usuarios/oauth/token Obtener token del usuario
+   * @apiName PostUsuarioOauthDatos
+   * @apiGroup Usuarios
+   * @apiVersion 0.1.0
+   * 
+   * @apiBody {String} codigo Codigo otorgado al loggearse el usuario
+   * 
+   * @apiSuccess {String} status
+   * @apiSuccess {String} token Token obtenido al intercambiar el codigo en el OAuth
+   */
+
   router.post('/token', function(req, res, next) {
     const {codigo} = req.body;
     getToken(codigo)
@@ -80,6 +92,21 @@ function oauth(Usuario){
       }
     })
   })
+
+  /**
+   * @api {get} /usuarios/oauth/datos/:permiso_id Guardar domicilio de persona
+   * @apiName GetUsuarioOauthDatos
+   * @apiGroup Usuarios
+   * @apiVersion 0.1.0
+   * 
+   * @apiParam {Number} permiso_id ID del permiso otorgado para conseguir datos
+   * 
+   * @apiSuccess {String} status
+   * 
+   * @apiSuccess {Object} datos Corresponde a los datos conseguidos del OAuth
+   * @apiSuccess {Number} tipo_usuario_id ID del tipo de usuario 
+   * @apiSuccess {Number} id ID del usuario
+   */
 
   router.get('/datos/:permiso_id', function(req, res, next){
     const {permiso_id} = req.params;
@@ -105,4 +132,4 @@ function oauth(Usuario){
   return router;
 }
 
-module.exports = oauth;
+module.exports = oauthRouter;
