@@ -1,4 +1,4 @@
-const oauthRouter = require('./oauth');
+const oauthRouter = require('./oauthRouter');
 const middleware = require('./middleware');
 const obtenerClavePublica = require('./obtenerClave');
 
