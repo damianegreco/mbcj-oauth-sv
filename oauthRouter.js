@@ -13,7 +13,11 @@ const {OAUTH_URL, OAUTH_ID, OAUTH_SECRET, OAUTH_VALIDADO, OAUTH_REEMPLAZAR_NOMBR
   - activo
 */
 
-function oauthRouter(Usuario){
+function oauthRouter(
+  Usuario, 
+  atributos = ['id', 'tipo_usuario_id', 'activo', 'nombre'],
+  atributosNuevoToken = ['tipo_usuario_id']
+){
   const router = express.Router();
 
   const getToken = (codigo) => {
@@ -45,12 +49,12 @@ function oauthRouter(Usuario){
     })
   }
 
-  const validarUsuario = (datos) => {
+  const validarUsuario = (datos, atributos) => {
     return new Promise((resolve, reject) => {
       if (OAUTH_VALIDADO?.toUpperCase() === "TRUE" && !datos.persona.validado) return reject("Usuario no validado");
       Usuario.findOne({
         where: {documento: datos.persona.documento},
-        attributes: ['id', 'tipo_usuario_id', 'activo', 'nombre']
+        attributes: atributos
       })
       .then(async (usuario) => {
         if (usuario === null) return reject("Usuario no encontrado");
@@ -64,6 +68,20 @@ function oauthRouter(Usuario){
       .catch((error) => reject(error));
     })
   }
+
+  const getNuevoToken = (token, datos) => {
+    return new Promise((resolve, reject) => {
+      const url = `${OAUTH_URL}/cliente/obtener/nuevo-token`;
+      const data = {token, cliente_id: OAUTH_ID, cliente_secreto: OAUTH_SECRET, datos};
+      axios.post(url, data)
+      .then((resp) => {
+        if (resp.data.status === "ok") return resolve(resp.data.token)
+        return reject(resp.data.error);
+      })
+      .catch((error) => reject(error))
+    })
+  }
+
 
   /**
    * @api {post} /usuarios/oauth/token Obtener token del usuario
@@ -108,13 +126,34 @@ function oauthRouter(Usuario){
    * @apiSuccess {Number} id ID del usuario
    */
 
+  router.get('/nuevo-token', function(req, res, next){
+    const token = req.headers.authorization;
+    
+    getDatos(token, 1)
+    .then((datos) => {
+      validarUsuario(datos, atributosNuevoToken)
+      .then(async (usuario) => {
+        const nuevoToken = await getNuevoToken(token, usuario);
+        res.json({nuevoToken, status:"ok"})
+      })
+      .catch((error) => {
+        console.error(error);
+        res.status(500).json({status:"error", error})
+      })
+    })
+    .catch((error) => {
+      console.error(error);
+      res.status(500).json({status:"error", error})
+    })
+  })
+
   router.get('/datos/:permiso_id', function(req, res, next){
     const {permiso_id} = req.params;
     const token = req.headers.authorization;
     getDatos(token, permiso_id)
     .then((datos) => {
-      validarUsuario(datos)
-      .then((usuario) => {
+      validarUsuario(datos, atributos)
+      .then(async (usuario) => {
         res.json({status:"ok", datos, tipo_usuario_id: usuario.tipo_usuario, id: usuario.id})
       })
       .catch((error) => {
