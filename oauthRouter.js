@@ -50,7 +50,7 @@ function oauthRouter(Usuario){
       if (OAUTH_VALIDADO?.toUpperCase() === "TRUE" && !datos.persona.validado) return reject("Usuario no validado");
       Usuario.findOne({
         where: {documento: datos.persona.documento},
-        attributes: ['id', 'tipo_usuario', 'activo', 'nombre']
+        attributes: ['id', 'tipo_usuario_id', 'activo', 'nombre']
       })
       .then(async (usuario) => {
         if (usuario === null) return reject("Usuario no encontrado");
