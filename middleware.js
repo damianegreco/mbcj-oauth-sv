@@ -70,16 +70,19 @@ function middleware(Usuario) {
           extraerDatosJWT(token)
           .then((decoded) => {
             
-            const { usuario_id } = decoded.data;
+            const { documento } = decoded.data;
 
-            Usuario.findOne({ where: { id: usuario_id }, attributes: ['activo', 'area_id'] })
+            Usuario.findOne({ where: { documento }, attributes: ['activo'] })
             .then(usuario => {
               if (!usuario) return reject({ status: 403, msj: "Usuario no encontrado" });
               if (!usuario.activo) return reject({ status: 403, msj: "Usuario inactivo" });
-              resolve({ status: "USUARIO", user: { ...decoded.data, area_id: usuario.area_id } });
+              resolve({ status: "USUARIO", user: { ...decoded.data } });
             })
             .catch(err => reject({ status: 403, msj: err.message || err.toString() }));
-          });
+          })
+          .catch((error) => {
+            reject({ status: 403, msj: `Error interno: ${JSON.stringify(error)}` });
+          })
         } catch (error) {
           reject({ status: 403, msj: `Error interno: ${error.message}` });
         }
@@ -110,6 +113,7 @@ function middleware(Usuario) {
           res.status(403).json({ status: "error", error: "Sin permiso" });
         })
         .catch(error => {
+          console.error(error);
           res.status(error.status || 403).json({ status: "error", error: error.msj || 'Error de autorización' });
         });
     };
