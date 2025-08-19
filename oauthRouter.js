@@ -1,5 +1,5 @@
 const express = require('express');
-const axios = require('axios')
+const axios = require('axios');
 
 const {OAUTH_URL, OAUTH_ID, OAUTH_SECRET, OAUTH_VALIDADO, OAUTH_REEMPLAZAR_NOMBRE} = process.env;
 
@@ -69,6 +69,22 @@ function oauthRouter(
     })
   }
 
+
+  const obtenerDatosUsuario = (datos, atributos) => {
+    return new Promise((resolve, reject) => {
+      Usuario.findOne({
+        where: { documento: datos.persona.documento },
+        attributes: atributos
+      })
+      .then(async (usuario) => {
+        if (usuario === null) return reject("Usuario no encontrado");
+        
+        resolve(usuario)
+      })
+      .catch((error) => reject(error));
+    })
+  }
+
   const getNuevoToken = (token, datos) => {
     return new Promise((resolve, reject) => {
       const url = `${OAUTH_URL}/cliente/obtener/nuevo-token`;
@@ -131,14 +147,10 @@ function oauthRouter(
     
     getDatos(token, 1)
     .then((datos) => {
-      validarUsuario(datos, atributosNuevoToken)
-      .then(async (usuario) => {
-        const nuevoToken = await getNuevoToken(token, usuario);
+      obtenerDatosUsuario(datos, atributosNuevoToken)
+      .then(async (datos) => {
+        const nuevoToken = await getNuevoToken(token, datos);
         res.json({nuevoToken, status:"ok"})
-      })
-      .catch((error) => {
-        console.error(error);
-        res.status(500).json({status:"error", error})
       })
     })
     .catch((error) => {

@@ -3,11 +3,40 @@ const path = require('path');
 const fs = require('fs');
 const { TOKEN_ADMIN, OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE } = process.env;
 
+
+/**
+ * Obtiene la clave pública para verificar el token JWT.
+ * @returns {Buffer} Clave pública en formato Buffer.
+ * @throws {Error} Si no se puede leer la clave pública.
+ */
+const obtenerClavePublica = function () {
+  const clavePublicaPath = path.join(OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE);
+  return fs.readFileSync(clavePublicaPath);
+};
+
 /**
  * Middleware de autenticación y autorización basado en JWT.
  * @param {Object} Usuario - Modelo Sequelize para consultar usuarios.
  * @returns {Object} Contiene funciones para validar usuario y middleware de validación.
  */
+const extraerDatosJWT = function(token){
+  return new Promise((resolve, reject) => {
+    const clavePublica = obtenerClavePublica();
+
+    jwt.verify(token, clavePublica, { algorithms: ['ES256'] }, function (error, decoded) {
+      if (error) return reject({
+        status: 403,
+        msj: error.name === 'JsonWebTokenError'
+          ? `Error en token: ${error.message}`
+          : error.name === 'TokenExpiredError'
+            ? `Token expirado: ${error.expiredAt}`
+            : error.message
+      });
+      return resolve(decoded)
+    })
+  })
+}
+
 function middleware(Usuario) {
   /** 
    * Usuario administrador "super admin" hardcodeado 
@@ -24,15 +53,7 @@ function middleware(Usuario) {
     nombre: "ADMIN",
   };
 
-  /**
-   * Obtiene la clave pública para verificar el token JWT.
-   * @returns {Buffer} Clave pública en formato Buffer.
-   * @throws {Error} Si no se puede leer la clave pública.
-   */
-  const obtenerClavePublica = function () {
-    const clavePublicaPath = path.join(OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE);
-    return fs.readFileSync(clavePublicaPath);
-  };
+
 
   /**
    * Valida un token JWT y verifica que el usuario esté activo.
@@ -46,27 +67,18 @@ function middleware(Usuario) {
       if (token) {
         if (token === TOKEN_ADMIN) return resolve({ status: "SUPERADMIN", user: admin });
         try {
-          const clavePublica = obtenerClavePublica();
-
-          jwt.verify(token, clavePublica, { algorithms: ['ES256'] }, function (error, decoded) {
-            if (error) return reject({
-              status: 403,
-              msj: error.name === 'JsonWebTokenError'
-                ? `Error en token: ${error.message}`
-                : error.name === 'TokenExpiredError'
-                  ? `Token expirado: ${error.expiredAt}`
-                  : error.message
-            });
-
+          extraerDatosJWT(token)
+          .then((decoded) => {
+            
             const { usuario_id } = decoded.data;
 
             Usuario.findOne({ where: { id: usuario_id }, attributes: ['activo', 'area_id'] })
-              .then(usuario => {
-                if (!usuario) return reject({ status: 403, msj: "Usuario no encontrado" });
-                if (!usuario.activo) return reject({ status: 403, msj: "Usuario inactivo" });
-                resolve({ status: "USUARIO", user: { ...decoded.data, area_id: usuario.area_id } });
-              })
-              .catch(err => reject({ status: 403, msj: err.message || err.toString() }));
+            .then(usuario => {
+              if (!usuario) return reject({ status: 403, msj: "Usuario no encontrado" });
+              if (!usuario.activo) return reject({ status: 403, msj: "Usuario inactivo" });
+              resolve({ status: "USUARIO", user: { ...decoded.data, area_id: usuario.area_id } });
+            })
+            .catch(err => reject({ status: 403, msj: err.message || err.toString() }));
           });
         } catch (error) {
           reject({ status: 403, msj: `Error interno: ${error.message}` });
@@ -106,4 +118,4 @@ function middleware(Usuario) {
   return { validarUsuario, validarUsuarioMW };
 }
 
-module.exports = middleware;
+module.exports = {middleware, extraerDatosJWT};
