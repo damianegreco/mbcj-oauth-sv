@@ -1,29 +1,36 @@
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
-const { TOKEN_ADMIN, OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE } = process.env;
 
+const {TOKEN_ADMIN, OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE} = process.env;
 
 /**
- * Obtiene la clave pública para verificar el token JWT.
- * @returns {Buffer} Clave pública en formato Buffer.
- * @throws {Error} Si no se puede leer la clave pública.
+ * @typedef {import('express').Request} Request
+ * @typedef {import('express').Response} Response
+ * @typedef {import('express').NextFunction} NextFunction
  */
-const obtenerClavePublica = function () {
+
+// Se lee la clave pública una sola vez al iniciar el módulo para optimizar el rendimiento.
+// Si la clave no puede ser leída, la aplicación no puede validar tokens de forma segura,
+// por lo que se considera un error fatal y se termina el proceso.
+let CLAVE_PUBLICA;
+try {
   const clavePublicaPath = path.join(OAUTH_CLAVE_DIR, OAUTH_CLAVE_FILE);
-  return fs.readFileSync(clavePublicaPath);
-};
+  CLAVE_PUBLICA = fs.readFileSync(clavePublicaPath);
+} catch (error) {
+  console.error('Error fatal: No se pudo cargar la clave pública para la verificación de JWT.', error);
+  process.exit(1);
+}
 
 /**
- * Middleware de autenticación y autorización basado en JWT.
- * @param {Object} Usuario - Modelo Sequelize para consultar usuarios.
- * @returns {Object} Contiene funciones para validar usuario y middleware de validación.
+ * Verifica y decodifica un token JWT utilizando la clave pública del servicio OAuth.
+ * @param {string} token - El token JWT a verificar.
+ * @returns {Promise<object>} Una promesa que resuelve con los datos decodificados del token.
+ * @rejects {{status: number, msj: string}} Un objeto de error con un código de estado y un mensaje descriptivo.
  */
-const extraerDatosJWT = function(token){
+function extraerDatosJWT(token) {
   return new Promise((resolve, reject) => {
-    const clavePublica = obtenerClavePublica();
-
-    jwt.verify(token, clavePublica, { algorithms: ['ES256'] }, function (error, decoded) {
+    jwt.verify(token, CLAVE_PUBLICA, {algorithms: ['ES256']}, function(error, decoded) {
       if (error) return reject({
         status: 403,
         msj: error.name === 'JsonWebTokenError'
@@ -32,15 +39,20 @@ const extraerDatosJWT = function(token){
             ? `Token expirado: ${error.expiredAt}`
             : error.message
       });
-      return resolve(decoded)
-    })
-  })
+      return resolve(decoded);
+    });
+  });
 }
 
+/**
+ * Fábrica de middlewares para la autenticación y autorización de usuarios mediante JWT.
+ * @param {object} Usuario - El modelo de Sequelize para la entidad de Usuario.
+ * @returns {{validarUsuario: function(string, boolean=): Promise<object>, validarUsuarioMW: function(Array<number>|null=, boolean=): function}} Un objeto que contiene las funciones `validarUsuario` y `validarUsuarioMW`.
+ */
 function middleware(Usuario) {
-  /** 
-   * Usuario administrador "super admin" hardcodeado 
-   * @type {Object}
+  /**
+   * Representa al usuario administrador con privilegios totales.
+   * @type {object}
    */
   const admin = {
     usuario_id: 0,
@@ -53,73 +65,64 @@ function middleware(Usuario) {
     nombre: "ADMIN",
   };
 
-
-
   /**
-   * Valida un token JWT y verifica que el usuario esté activo.
-   * @param {string} token - Token JWT a validar.
-   * @param {boolean} [requerido=true] - Indica si el token es obligatorio.
-   * @returns {Promise<Object>} Resuelve con información del usuario validado.
-   * @rejects {Object} Objeto con status y mensaje de error en caso de falla.
+   * Valida un token, verifica la existencia y estado del usuario en la base de datos.
+   * Maneja el caso especial del token de "SUPERADMIN".
+   * @param {string} token - El token JWT a validar.
+   * @param {boolean} [requerido=true] - Si es `false`, permite que la promesa se resuelva exitosamente aunque no se provea un token.
+   * @returns {Promise<{status: string, user: object|null}>} Una promesa que resuelve con el estado de la validación y los datos del usuario.
+   * @rejects {{status: number, msj: string}} Un objeto de error en caso de que la validación falle.
    */
-  const validarUsuario = function (token, requerido = true) {
+  const validarUsuario = function(token, requerido = true) {
     return new Promise((resolve, reject) => {
-      if (token) {
-        if (token === TOKEN_ADMIN) return resolve({ status: "SUPERADMIN", user: admin });
-        try {
-          extraerDatosJWT(token)
-          .then((decoded) => {
-            
-            const { documento } = decoded.data;
-
-            Usuario.findOne({ where: { documento }, attributes: ['activo'] })
-            .then(usuario => {
-              if (!usuario) return reject({ status: 403, msj: "Usuario no encontrado" });
-              if (!usuario.activo) return reject({ status: 403, msj: "Usuario inactivo" });
-              resolve({ status: "USUARIO", user: { ...decoded.data } });
-            })
-            .catch(err => reject({ status: 403, msj: err.message || err.toString() }));
-          })
-          .catch((error) => {
-            reject({ status: 403, msj: `Error interno: ${JSON.stringify(error)}` });
-          })
-        } catch (error) {
-          reject({ status: 403, msj: `Error interno: ${error.message}` });
-        }
-      } else {
-        if (requerido) return reject({ status: 401, msj: "Sin autorización: token requerido" });
-        resolve({ status: "SIN TOKEN", user: null, msj: "Sin autorización" });
+      if (!token) {
+        if (requerido) return reject({status: 401, msj: "Sin autorización: token requerido"});
+        return resolve({status: "SIN TOKEN", user: null});
       }
+
+      if (token === TOKEN_ADMIN) return resolve({status: "SUPERADMIN", user: admin});
+
+      extraerDatosJWT(token)
+        .then((decoded) => {
+          const {documento} = decoded.data;
+          Usuario.findOne({where: {documento}, attributes: ['activo']})
+            .then(usuario => {
+              if (!usuario) return reject({status: 403, msj: "Usuario no encontrado"});
+              if (!usuario.activo) return reject({status: 403, msj: "Usuario inactivo"});
+              resolve({status: "USUARIO", user: {...decoded.data}});
+            })
+            .catch(err => reject({status: 500, msj: err.message || 'Error de base de datos'}));
+        })
+        .catch(reject); // Rechaza con el error formateado por extraerDatosJWT
     });
   };
 
   /**
-   * Middleware Express para validar usuario basado en JWT y verificar roles.
-   * @param {Array<number>|null} [tipos_usuario_id=[1]] - Tipos de usuario permitidos. Null permite todos.
-   * @param {boolean} [requerido=true] - Indica si el token es obligatorio.
-   * @returns {function} Middleware Express.
+   * Genera un middleware de Express para validar un JWT y opcionalmente verificar el tipo de usuario.
+   * @param {(Array<number>|null)} [tipos_usuario_id=[1]] - Un array de IDs de tipos de usuario permitidos. Si es `null`, se permite el acceso a cualquier tipo de usuario autenticado.
+   * @param {boolean} [requerido=true] - Indica si la autenticación es obligatoria para acceder al recurso.
+   * @returns {function(Request, Response, NextFunction): void} El middleware para ser usado en rutas de Express.
    */
-  const validarUsuarioMW = function (tipos_usuario_id = [1], requerido = true) {
-    return function (req, res, next) {
-      // Extraer token del header Authorization tipo "Bearer <token>"
+  const validarUsuarioMW = function(tipos_usuario_id = [1], requerido = true) {
+    return function(req, res, next) {
       const authHeader = req.headers.authorization || '';
       const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
 
       validarUsuario(token, requerido)
         .then(resp => {
-          req.user = resp.user; // Se asigna al req para que esté disponible en siguientes middlewares
+          req.user = resp.user;
           if (tipos_usuario_id === null) return next();
           if (resp.user && tipos_usuario_id.includes(resp.user.tipo_usuario_id)) return next();
-          res.status(403).json({ status: "error", error: "Sin permiso" });
+          res.status(403).json({status: "error", error: "Sin permiso"});
         })
         .catch(error => {
           console.error(error);
-          res.status(error.status || 403).json({ status: "error", error: error.msj || 'Error de autorización' });
+          res.status(error.status || 403).json({status: "error", error: error.msj || 'Error de autorización'});
         });
     };
   };
 
-  return { validarUsuario, validarUsuarioMW };
+  return {validarUsuario, validarUsuarioMW};
 }
 
 module.exports = {middleware, extraerDatosJWT};
