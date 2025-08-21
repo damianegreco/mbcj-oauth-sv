@@ -204,9 +204,9 @@ function oauthRouter(
 
     let tokenObtenido;
     getToken(codigo)
-      .then((token) => {
+      .then(async (token) => {
         tokenObtenido = token;
-        const decoded = extraerDatosJWT(token);
+        const decoded = await extraerDatosJWT(token);
         return obtenerDatosUsuario(decoded.data.documento, [['id', 'usuario_id']]);
       })
       .then((usuario) => {
