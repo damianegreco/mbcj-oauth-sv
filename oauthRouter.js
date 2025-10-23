@@ -210,7 +210,7 @@ function oauthRouter(
         return obtenerDatosUsuario(decoded.data.documento, [['id', 'usuario_id']]);
       })
       .then((usuario) => {
-        loggeado(null, { usuario_id: usuario.usuario_id ?? usuario.id });
+        loggeado(null, usuario);
         res.json({ status: "ok", token: tokenObtenido });
       })
       .catch((error) => {
