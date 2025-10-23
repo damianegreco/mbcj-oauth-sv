@@ -143,7 +143,7 @@ function oauthRouter(
       Usuario.findOne({ where: { documento }, attributes: atributosUsuario })
         .then(usuario => {
           if (!usuario) return reject("Usuario local no encontrado");
-          return resolve(usuario);
+          return resolve(usuario.dataValues);
         })
         .catch(reject);
     });
